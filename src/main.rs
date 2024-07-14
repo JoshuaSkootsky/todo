@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDate};
+use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -43,7 +43,7 @@ impl TodoList {
     }
 
     // return a list of tasks
-    fn list_tasks(&self) -> Vec<(&Task)> {
+    fn list_tasks(&self) -> Vec<&Task> {
         self.tasks.values().collect()
     }
 
@@ -61,7 +61,9 @@ impl TodoList {
             if let Some(desc) = description {
                 task.description = desc.to_string();
             }
-            task.due_date = due_date;
+            if let Some(date) = due_date {
+                task.due_date = Some(date);
+            }
             true
         } else {
             false
@@ -73,7 +75,7 @@ fn main() {
     let mut todo_list = TodoList::new();
 
     loop {
-        print!("Enter command (add/remove/list/quit): ");
+        print!("Enter command (add/remove/list/update/quit): ");
         io::stdout().flush().unwrap();
 
         let mut command = String::new();
@@ -86,17 +88,15 @@ fn main() {
                 io::stdout().flush().unwrap();
                 let mut description = String::new();
                 io::stdin().read_line(&mut description).unwrap();
-                
+
                 let description = description.trim().to_string();
 
-                
                 print!("Enter due date (YYYY-MM-DD, leave blank for no date): ");
                 io::stdout().flush().unwrap();
                 let mut date_string = String::new();
-                
+
                 io::stdin().read_line(&mut date_string).unwrap();
                 let date_string = date_string.trim();
-
 
                 let due_date = if !date_string.is_empty() {
                     match NaiveDate::parse_from_str(date_string, "%Y-%m-%d") {
@@ -128,8 +128,13 @@ fn main() {
             "list" => {
                 let tasks = todo_list.list_tasks(); // TODO how would this work with multiple todo lists
                 for task in tasks {
-                    let date_str = task.due_date.map_or("No due date".to_string(), |d| d.format("%Y-%m-%d").to_string());
-                    println!("ID: {}, Description: {}, Due Date: {}", task.id, task.description, date_str);
+                    let date_str = task.due_date.map_or("No due date".to_string(), |d| {
+                        d.format("%Y-%m-%d").to_string()
+                    });
+                    println!(
+                        "ID: {}, Description: {}, Due Date: {}",
+                        task.id, task.description, date_str
+                    );
                 }
             }
             "update" => {
@@ -158,7 +163,9 @@ fn main() {
                     match NaiveDate::parse_from_str(date_string, "%Y-%m-%d") {
                         Ok(date) => Some(date),
                         Err(_) => {
-                            println!("Invalid date format. Task will be updated without a due date.");
+                            println!(
+                                "Invalid date format. Task will be updated without a due date."
+                            );
                             None
                         }
                     }
@@ -212,9 +219,38 @@ mod tests {
         assert_eq!(tasks.len(), 2);
         assert!(tasks
             .iter()
-            .any(|(task)| task.id == 1 && task.description == "Learn Rust"));
+            .any(|task| task.id == 1 && task.description == "Learn Rust"));
         assert!(tasks
             .iter()
-            .any(|(task)| task.id == 2 && task.description == "Write tests"));
+            .any(|task| task.id == 2 && task.description == "Write tests"));
+    }
+
+    #[test]
+    fn test_update_task_preserve_due_date() {
+        let mut todo_list = TodoList::new();
+        let original_date = NaiveDate::from_ymd_opt(2023, 6, 1).unwrap();
+        let id = todo_list.add_task("Original task".to_string(), Some(original_date));
+
+        // Update only the description
+        todo_list.update_task(id, &Some("Updated task".to_string()), None);
+
+        let updated_task = todo_list.get_task(id).unwrap();
+        assert_eq!(updated_task.description, "Updated task");
+        assert_eq!(updated_task.due_date, Some(original_date));
+
+        // Update only the due date
+        let new_date = NaiveDate::from_ymd_opt(2023, 7, 1).unwrap();
+        todo_list.update_task(id, &None, Some(new_date));
+
+        let updated_task = todo_list.get_task(id).unwrap();
+        assert_eq!(updated_task.description, "Updated task");
+        assert_eq!(updated_task.due_date, Some(new_date));
+
+        // Update neither description nor due date
+        todo_list.update_task(id, &None, None);
+
+        let updated_task = todo_list.get_task(id).unwrap();
+        assert_eq!(updated_task.description, "Updated task");
+        assert_eq!(updated_task.due_date, Some(new_date));
     }
 }
