@@ -5,6 +5,7 @@ use std::io::{self, Write};
 struct Task {
     id: u32,
     description: String,
+    category: String,
     due_date: Option<NaiveDate>,
 }
 
@@ -23,7 +24,7 @@ impl TodoList {
 
     // add a new task to the list and return its id
     // return the id to make it testable, and to be able to remove  the task by id
-    fn add_task(&mut self, description: String, due_date: Option<NaiveDate>) -> u32 {
+    fn add_task(&mut self, description: String, due_date: Option<NaiveDate>, category: String) -> u32 {
         let id = self.next_id;
         self.tasks.insert(
             self.next_id,
@@ -31,6 +32,7 @@ impl TodoList {
                 id,
                 description,
                 due_date,
+                category,
             },
         );
         self.next_id += 1;
@@ -43,8 +45,13 @@ impl TodoList {
     }
 
     // return a list of tasks
-    fn list_tasks(&self) -> Vec<&Task> {
-        self.tasks.values().collect()
+    fn list_tasks(&self, category: Option<&str>) -> Vec<&Task> {
+        self.tasks.values()
+        .filter(|task| match category {
+            Some(cat) => task.category == cat,
+            None => true,
+        })
+        .collect()
     }
 
     fn get_task(&self, id: u32) -> Option<&Task> {
@@ -54,20 +61,32 @@ impl TodoList {
     fn update_task(
         &mut self,
         id: u32,
-        description: &Option<String>,
-        due_date: Option<NaiveDate>,
+        description: &Option<String>, // TODO why is this an option?
+        due_date: &Option<NaiveDate>,
+        category: &Option<String>,
     ) -> bool {
         if let Some(task) = self.tasks.get_mut(&id) {
             if let Some(desc) = description {
                 task.description = desc.to_string();
             }
             if let Some(date) = due_date {
-                task.due_date = Some(date);
+                task.due_date = Some(*date);
+            }
+            if let Some(cat) = category {
+                task.category = cat.to_string();
             }
             true
         } else {
             false
         }
+    }
+
+    fn get_categories(&self) -> Vec<String> {
+        self.tasks.values()
+            .map(|task| task.category.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
     }
 }
 
@@ -75,7 +94,7 @@ fn main() {
     let mut todo_list = TodoList::new();
 
     loop {
-        print!("Enter command (add/remove/list/update/quit): ");
+        print!("Enter command (add/remove/list/update/categories/quit): ");
         io::stdout().flush().unwrap();
 
         let mut command = String::new();
@@ -110,7 +129,18 @@ fn main() {
                     None
                 };
 
-                let id = todo_list.add_task(description, due_date);
+                print!("Enter category (leave blank for general): ");
+                io::stdout().flush().unwrap();
+                let mut category = String::new();
+                io::stdin().read_line(&mut category).unwrap();
+                let category_string = category.trim().to_string();
+                if category_string.is_empty() {
+                    category = "General".to_string();
+                } else {
+                    category = category_string;
+                }
+
+                let id = todo_list.add_task(description, due_date, category);
                 println!("Task added with ID {}.", id);
             }
             "remove" => {
@@ -126,7 +156,15 @@ fn main() {
                 }
             }
             "list" => {
-                let tasks = todo_list.list_tasks(); // TODO how would this work with multiple todo lists
+                print!("Enter category to list (leave blank for all): ");
+                io::stdout().flush().unwrap();
+                let mut category = String::new();
+                io::stdin().read_line(&mut category).unwrap();
+                let category = category.trim();
+                let category = if category.is_empty() { None } else { Some(category) };
+
+
+                let tasks = todo_list.list_tasks(category);
                 for task in tasks {
                     let date_str = task.due_date.map_or("No due date".to_string(), |d| {
                         d.format("%Y-%m-%d").to_string()
@@ -173,10 +211,27 @@ fn main() {
                     None
                 };
 
-                if todo_list.update_task(id, &description, due_date) {
+                print!("Enter new category (leave blank to keep current): ");
+                io::stdout().flush().unwrap();
+                let mut category = String::new();
+                io::stdin().read_line(&mut category).unwrap();
+                let category_string = category.trim().to_string();
+                let category = if category_string.is_empty() {
+                    None
+                } else {
+                    Some(category_string)
+                };
+
+                if todo_list.update_task(id, &description, &due_date, &category) {
                     println!("Task id {} updated. {:?}", id, description);
                 } else {
                     println!("Task not found.");
+                }
+            }
+            "categories" => {
+                let categories = todo_list.get_categories();
+                for category in categories {
+                    println!("{}", category);
                 }
             }
             "quit" => break,
@@ -192,7 +247,7 @@ mod tests {
     #[test]
     fn test_add_task() {
         let mut todo_list = TodoList::new(); // TODO why is this mutable?
-        let id = todo_list.add_task("Learn Rust".to_string(), None);
+        let id = todo_list.add_task("Learn Rust".to_string(), None, "Programming".to_string());
         assert_eq!(id, 1);
         assert_eq!(todo_list.tasks.len(), 1);
         let task = todo_list.get_task(id).unwrap();
@@ -204,7 +259,7 @@ mod tests {
     #[test]
     fn test_remove_task() {
         let mut todo_list = TodoList::new();
-        let id = todo_list.add_task("Learn Rust".to_string(), None);
+        let id = todo_list.add_task("Learn Rust".to_string(), None, "General".to_string());
         assert!(todo_list.remove_task(id));
         assert_eq!(todo_list.tasks.len(), 0);
         assert!(!todo_list.remove_task(id));
@@ -213,9 +268,9 @@ mod tests {
     #[test]
     fn test_list_tasks() {
         let mut todo_list = TodoList::new();
-        todo_list.add_task("Learn Rust".to_string(), None);
-        todo_list.add_task("Write tests".to_string(), None);
-        let tasks = todo_list.list_tasks();
+        todo_list.add_task("Learn Rust".to_string(), None, "Programming".to_string());
+        todo_list.add_task("Write tests".to_string(), None, "General".to_string());
+        let tasks = todo_list.list_tasks(None);
         assert_eq!(tasks.len(), 2);
         assert!(tasks
             .iter()
@@ -229,10 +284,10 @@ mod tests {
     fn test_update_task_preserve_due_date() {
         let mut todo_list = TodoList::new();
         let original_date = NaiveDate::from_ymd_opt(2023, 6, 1).unwrap();
-        let id = todo_list.add_task("Original task".to_string(), Some(original_date));
+        let id = todo_list.add_task("Original task".to_string(), Some(original_date), "General".to_string());
 
         // Update only the description
-        todo_list.update_task(id, &Some("Updated task".to_string()), None);
+        todo_list.update_task(id, &Some("Updated task".to_string()), &None, &None);
 
         let updated_task = todo_list.get_task(id).unwrap();
         assert_eq!(updated_task.description, "Updated task");
@@ -240,17 +295,40 @@ mod tests {
 
         // Update only the due date
         let new_date = NaiveDate::from_ymd_opt(2023, 7, 1).unwrap();
-        todo_list.update_task(id, &None, Some(new_date));
+        todo_list.update_task(id, &None, &Some(new_date), &None);
 
         let updated_task = todo_list.get_task(id).unwrap();
         assert_eq!(updated_task.description, "Updated task");
         assert_eq!(updated_task.due_date, Some(new_date));
 
         // Update neither description nor due date
-        todo_list.update_task(id, &None, None);
+        todo_list.update_task(id, &None, &None, &None);
 
         let updated_task = todo_list.get_task(id).unwrap();
         assert_eq!(updated_task.description, "Updated task");
         assert_eq!(updated_task.due_date, Some(new_date));
+
+        // Update only the category
+        todo_list.update_task(id, &None, &None, &Some("Programming".to_string()));
+
+        let updated_task = todo_list.get_task(id).unwrap();
+        assert_eq!(updated_task.description, "Updated task");
+        assert_eq!(updated_task.due_date, Some(new_date));
+        assert_eq!(updated_task.category, "Programming");
+    }
+
+    #[test]
+    fn test_list_tasks_by_category() {
+        let mut todo_list = TodoList::new();
+        todo_list.add_task("Learn Rust".to_string(), None, "Programming".to_string());
+        todo_list.add_task("Buy groceries".to_string(), None, "Personal".to_string());
+        todo_list.add_task("Read book".to_string(), None, "Personal".to_string());
+
+        let programming_tasks = todo_list.list_tasks(Some("Programming"));
+        assert_eq!(programming_tasks.len(), 1);
+        assert_eq!(programming_tasks[0].description, "Learn Rust");
+
+        let personal_tasks = todo_list.list_tasks(Some("Personal"));
+        assert_eq!(personal_tasks.len(), 2);
     }
 }
