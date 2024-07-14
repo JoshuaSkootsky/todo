@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+chrono = "0.4.38"
+oauth2 = "4.4.2"
+serde = "1.0.204"
+tokio = "1.38.0"
