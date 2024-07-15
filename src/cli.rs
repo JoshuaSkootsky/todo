@@ -1,4 +1,8 @@
+use crate::todo::DueDate;
+use crate::todo::NewTask;
+use crate::todo::Priority;
 use crate::todo::Task;
+use crate::todo::TaskUpdate;
 use crate::todo::TodoList;
 use chrono::NaiveDate;
 use std::io::{self, Write};
@@ -44,17 +48,17 @@ fn add_task(todo_list: &mut TodoList) {
 
     io::stdin().read_line(&mut date_string).unwrap();
     let date_string = date_string.trim();
-
-    let due_date = if !date_string.is_empty() {
+    
+    let due_date = if date_string.is_empty() {
+        DueDate::None
+    } else {
         match NaiveDate::parse_from_str(date_string, "%Y-%m-%d") {
-            Ok(date) => Some(date),
+            Ok(date) => DueDate::On(date),
             Err(_) => {
-                println!("Invalid date format. Task will be added without a due date.");
-                None
+                println!("Invalid date format. Setting due date to none.");
+                DueDate::None
             }
         }
-    } else {
-        None
     };
 
     print!("Enter category (leave blank for general): ");
@@ -67,8 +71,12 @@ fn add_task(todo_list: &mut TodoList) {
     } else {
         category = category_string;
     }
-
-    let id = todo_list.add_task(description, due_date, category);
+    let id = todo_list.add_task(NewTask {
+        description,
+        due_date,
+        category,
+        priority: Priority::Low,
+    });
     println!("Task added with ID {}.", id);
 }
 
@@ -155,10 +163,15 @@ fn update_task(todo_list: &mut TodoList) {
         Some(category_string)
     };
 
-    if todo_list.update_task(id, &description, &due_date, &category) {
-        println!("Task id {} updated. {:?}", id, description);
-    } else {
-        println!("Task not found.");
+    let task_update = TaskUpdate {
+        description,
+        due_date,
+        category,
+    };
+
+
+    if todo_list.update_task(id, task_update) {
+        println!("Task id {} updated.", id);
     }
 }
 
@@ -187,11 +200,13 @@ fn print_task_details(task: &Task) {
     println!("Task details:");
     println!("ID: {}", task.id);
     println!("Description: {}", task.description);
-    println!(
-        "Due Date: {}",
-        task.due_date
-            .map_or("None".to_string(), |d| d.format("%Y-%m-%d").to_string())
-    );
+
+    let due_date_str = match &task.due_date {
+        DueDate::On(d) | DueDate::Before(d) => d.format("%Y-%m-%d").to_string(),
+        DueDate::None => "None".to_string(),
+    };
+    println!("Due Date: {}", due_date_str);
+
     println!("Category: {}", task.category);
 }
 
