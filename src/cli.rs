@@ -3,19 +3,85 @@ use crate::todo::NewTask;
 use crate::todo::Priority;
 use crate::todo::Task;
 use crate::todo::TaskUpdate;
+use crate::todo::TodoError;
 use crate::todo::TodoList;
 use chrono::NaiveDate;
-use std::io::{self, Write};
+use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
 
+// DEFAULT_CATEGORY is the default category for new tasks
 pub const DEFAULT_CATEGORY: &str = "General";
 
-pub fn run_cli(todo_list: &mut TodoList) {
+// FILENAME_HISTORY is the name of the file that stores the history of filenames
+const FILENAME_HISTORY: &str = ".todo_filenames.txt";
+
+const AFFIRMATIVE_RESPONSES: [&str; 9] = ["y", "yes", "yeah", "yep", "ok", "sure", "true", "accept", "aff"];
+
+struct FilenameTracker {
+    filenames: HashSet<String>,
+    tracking_enabled: bool,
+}
+
+impl FilenameTracker {
+    fn new() -> io::Result<Self> {
+        let mut filenames = HashSet::new();
+        if Path::new(FILENAME_HISTORY).exists() {
+            let file = File::open(FILENAME_HISTORY)?;
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                filenames.insert(line?);
+            }
+        }
+        Ok(FilenameTracker {
+            filenames,
+            tracking_enabled: false,
+        })
+    }
+
+    fn add(&mut self, filename: &str) -> io::Result<()> {
+        if self.filenames.insert(filename.to_string()) {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(FILENAME_HISTORY)?;
+            writeln!(file, "{}", filename)?;
+        }
+        Ok(())
+    }
+
+    fn list(&self) -> &HashSet<String> {
+        &self.filenames
+    }
+
+    fn enable_tracking(&mut self) {
+        self.tracking_enabled = true;
+    }
+}
+
+pub fn run_cli(todo_list: &mut TodoList) -> io::Result<()> {
+    let mut filename_tracker = FilenameTracker::new()?;
+
+    println!("Welcome to the Todo List CLI!");
+    print!("Would you like to enable filename tracking? (y/n): ");
+    io::stdout().flush()?;
+    let mut response = String::new();
+    io::stdin().read_line(&mut response)?;
+
+    if AFFIRMATIVE_RESPONSES.contains(&response.trim().to_lowercase().as_str()) {
+        filename_tracker.enable_tracking();
+        println!("Filename tracking enabled.");
+    } else {
+        println!("Filename tracking disabled. You can enable it later by using the 'enable_tracking' command.");
+    }
+
     loop {
-        print!("Enter command (add/remove/list/get/update/categories/quit): ");
-        io::stdout().flush().unwrap();
+        print!("Enter command (add/remove/list/get/update/categories/save/load/enable_tracking/quit): ");
+        io::stdout().flush()?;
 
         let mut command = String::new();
-        io::stdin().read_line(&mut command).unwrap();
+        io::stdin().read_line(&mut command)?;
         let command = command.trim();
 
         match command {
@@ -25,6 +91,15 @@ pub fn run_cli(todo_list: &mut TodoList) {
             "get" => get_task(todo_list),
             "update" => update_task(todo_list),
             "categories" => list_categories(todo_list),
+            "save" => save_list(todo_list, &mut filename_tracker)?,
+            "load" => match load_list(&filename_tracker) {
+                Ok(loaded_list) => *todo_list = loaded_list,
+                Err(e) => println!("Error loading list: {}. Continuing with current list.", e),
+            },
+            "enable_tracking" => {
+                filename_tracker.enable_tracking();
+                println!("Filename tracking enabled.");
+            }
             "quit" => {
                 quit();
                 break;
@@ -32,6 +107,7 @@ pub fn run_cli(todo_list: &mut TodoList) {
             _ => println!("Unknown command."),
         }
     }
+    Ok(())
 }
 
 fn add_task(todo_list: &mut TodoList) {
@@ -207,6 +283,52 @@ fn print_task_details(task: &Task) {
     println!("Due Date: {}", due_date_str);
 
     println!("Category: {}", task.category);
+}
+
+// save_list to local file storage
+fn save_list(todo_list: &TodoList, filename_tracker: &mut FilenameTracker) -> io::Result<()> {
+    if filename_tracker.tracking_enabled {
+        println!("Previously used filenames:");
+        for filename in filename_tracker.list() {
+            println!("- {}", filename);
+        }
+    }
+
+    print!("Enter filename to save (or type a new name): ");
+    io::stdout().flush()?;
+    let mut filename = String::new();
+    io::stdin().read_line(&mut filename)?;
+    let filename = filename.trim();
+
+    match todo_list.save_to_file(filename) {
+        Ok(_) => {
+            println!("Todo list saved successfully to {}.", filename);
+            filename_tracker.add(filename)?;
+            Ok(())
+        }
+        Err(e) => {
+            println!("Failed to save todo list: {}", e);
+            Err(io::Error::new(io::ErrorKind::Other, e))
+        }
+    }
+}
+
+// load_list from local file storage
+fn load_list(filename_tracker: &FilenameTracker) -> Result<TodoList, TodoError> {
+    if filename_tracker.tracking_enabled {
+        println!("Previously used filenames:");
+        for filename in filename_tracker.list() {
+            println!("- {}", filename);
+        }
+    }
+
+    print!("Enter filename to load: ");
+    io::stdout().flush().unwrap();
+    let mut filename = String::new();
+    io::stdin().read_line(&mut filename).unwrap();
+    let filename = filename.trim();
+
+    TodoList::load_from_file(filename)
 }
 
 fn quit() {
