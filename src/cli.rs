@@ -6,9 +6,15 @@ use crate::todo::TaskUpdate;
 use crate::todo::TodoError;
 use crate::todo::TodoList;
 use chrono::NaiveDate;
+use crossterm::{
+    cursor::MoveUp,
+    event::{self, Event, KeyCode},
+    terminal::{Clear, ClearType},
+    ExecutableCommand,
+};
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, stdout, BufRead, BufReader, Write};
 use std::path::Path;
 
 // DEFAULT_CATEGORY is the default category for new tasks
@@ -17,7 +23,9 @@ pub const DEFAULT_CATEGORY: &str = "General";
 // FILENAME_HISTORY is the name of the file that stores the history of filenames
 const FILENAME_HISTORY: &str = ".todo_filenames.txt";
 
-const AFFIRMATIVE_RESPONSES: [&str; 9] = ["y", "yes", "yeah", "yep", "ok", "sure", "true", "accept", "aff"];
+const AFFIRMATIVE_RESPONSES: [&str; 9] = [
+    "y", "yes", "yeah", "yep", "ok", "sure", "true", "accept", "aff",
+];
 
 struct FilenameTracker {
     filenames: HashSet<String>,
@@ -287,41 +295,39 @@ fn print_task_details(task: &Task) {
 
 // save_list to local file storage
 fn save_list(todo_list: &TodoList, filename_tracker: &mut FilenameTracker) -> io::Result<()> {
-    if filename_tracker.tracking_enabled {
-        println!("Previously used filenames:");
-        for filename in filename_tracker.list() {
-            println!("- {}", filename);
+    let filenames: Vec<_> = filename_tracker.list().iter().cloned().collect();
+
+    if filename_tracker.tracking_enabled && !filenames.is_empty() {
+        match select_file(&filenames, "Select a file to save to:") {
+            Ok(Some(filename)) => return save_to_file(todo_list, &filename, filename_tracker),
+            Ok(None) => {} // User chose to enter a new filename
+            Err(e) => return Err(e),
         }
     }
 
-    print!("Enter filename to save (or type a new name): ");
+    // If tracking is disabled, the list is empty, or user chose to enter a new filename
+    print!("Enter filename to save: ");
     io::stdout().flush()?;
     let mut filename = String::new();
     io::stdin().read_line(&mut filename)?;
     let filename = filename.trim();
 
-    match todo_list.save_to_file(filename) {
-        Ok(_) => {
-            println!("Todo list saved successfully to {}.", filename);
-            filename_tracker.add(filename)?;
-            Ok(())
-        }
-        Err(e) => {
-            println!("Failed to save todo list: {}", e);
-            Err(io::Error::new(io::ErrorKind::Other, e))
-        }
-    }
+    save_to_file(todo_list, filename, filename_tracker)
 }
 
 // load_list from local file storage
 fn load_list(filename_tracker: &FilenameTracker) -> Result<TodoList, TodoError> {
-    if filename_tracker.tracking_enabled {
-        println!("Previously used filenames:");
-        for filename in filename_tracker.list() {
-            println!("- {}", filename);
+    let filenames: Vec<_> = filename_tracker.list().iter().cloned().collect();
+
+    if filename_tracker.tracking_enabled && !filenames.is_empty() {
+        match select_file(&filenames, "Select a file to load:") {
+            Ok(Some(filename)) => return TodoList::load_from_file(&filename),
+            Ok(None) => {} // User chose to enter a new filename
+            Err(e) => return Err(TodoError::Io(e)),
         }
     }
 
+    // If tracking is disabled, the list is empty, or user chose to enter a new filename
     print!("Enter filename to load: ");
     io::stdout().flush().unwrap();
     let mut filename = String::new();
@@ -333,4 +339,109 @@ fn load_list(filename_tracker: &FilenameTracker) -> Result<TodoList, TodoError> 
 
 fn quit() {
     println!("Goodbye!");
+}
+
+// select_file prompts the user to select a file from a list of filenames
+fn select_file(filenames: &[String], prompt: &str) -> io::Result<Option<String>> {
+    let mut selected = 0;
+    let mut stdout = stdout();
+
+    println!("{}", prompt);
+    for filename in filenames.iter() {
+        println!("  {}", filename);
+    }
+    println!("  Enter new filename");
+
+    loop {
+        // Move cursor to the start of the list
+        stdout.execute(MoveUp(filenames.len() as u16 + 1))?;
+
+        // Redraw the list with the current selection
+        for (i, filename) in filenames.iter().enumerate() {
+            stdout.execute(Clear(ClearType::CurrentLine))?;
+            if i == selected {
+                println!("> {}", filename);
+            } else {
+                println!("  {}", filename);
+            }
+        }
+        stdout.execute(Clear(ClearType::CurrentLine))?;
+        println!(
+            "{}",
+            if selected == filenames.len() {
+                "> Enter new filename"
+            } else {
+                "  Enter new filename"
+            }
+        );
+
+        stdout.flush()?;
+
+        // Handle key events
+        if let Event::Key(event) = event::read()? {
+            match event.code {
+                KeyCode::Up => {
+                    if selected > 0 {
+                        selected -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if selected < filenames.len() {
+                        selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    // Clear the selection UI
+                    stdout.execute(MoveUp(filenames.len() as u16 + 1))?;
+                    for _ in 0..=filenames.len() {
+                        stdout.execute(Clear(ClearType::CurrentLine))?;
+                        println!();
+                    }
+                    stdout.execute(MoveUp(filenames.len() as u16 + 2))?;
+                    stdout.execute(Clear(ClearType::CurrentLine))?;
+                    println!("{}", prompt);
+
+                    return if selected < filenames.len() {
+                        println!("Selected: {}", filenames[selected]);
+                        Ok(Some(filenames[selected].clone()))
+                    } else {
+                        println!("Enter new filename:");
+                        Ok(None)
+                    };
+                }
+                KeyCode::Esc => {
+                    // Clear the selection UI
+                    stdout.execute(MoveUp(filenames.len() as u16 + 1))?;
+                    for _ in 0..=filenames.len() {
+                        stdout.execute(Clear(ClearType::CurrentLine))?;
+                        println!();
+                    }
+                    stdout.execute(MoveUp(filenames.len() as u16 + 2))?;
+                    stdout.execute(Clear(ClearType::CurrentLine))?;
+                    println!("Operation cancelled.");
+                    return Ok(None);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+// save_to_file saves the todo list to a file
+fn save_to_file(
+    todo_list: &TodoList,
+    filename: &str,
+    filename_tracker: &mut FilenameTracker,
+) -> io::Result<()> {
+    match todo_list.save_to_file(filename) {
+        Ok(_) => {
+            println!("Todo list saved successfully to {}.", filename);
+            filename_tracker.add(filename)?;
+            Ok(())
+        }
+        Err(e) => {
+            println!("Failed to save todo list: {}", e);
+            Err(io::Error::new(io::ErrorKind::Other, e))
+        }
+    }
 }
