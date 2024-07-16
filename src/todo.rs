@@ -1,8 +1,13 @@
 // src/todo.rs
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
+use thiserror::Error;
 
 // Task is a thing to do and its details
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Task {
     pub id: u32,
     pub description: String,
@@ -26,13 +31,14 @@ pub struct TaskUpdate {
     pub category: Option<String>,
 }
 // Priority is a priority level for a task
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 pub enum Priority {
     Low,
     Medium,
     High,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum DueDate {
     On(NaiveDate),
     Before(NaiveDate),
@@ -47,11 +53,23 @@ pub enum Status {
     Completed,
 }
 
-// TodoList is a collection of Tasks
+#[derive(Serialize, Deserialize)]
 pub struct TodoList {
     tasks: HashMap<u32, Task>,
     next_id: u32,
 }
+
+#[derive(Error, Debug)]
+pub enum TodoError {
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("Task not found")]
+    TaskNotFound,
+}
+
+type Result<T> = std::result::Result<T, TodoError>;
 
 impl TodoList {
     pub fn new() -> TodoList {
@@ -83,8 +101,9 @@ impl TodoList {
         id
     }
 
-    pub fn remove_task(&mut self, id: u32) -> bool {
-        self.tasks.remove(&id).is_some()
+    pub fn remove_task(&mut self, id: u32) -> Result<()> {
+        self.tasks.remove(&id).ok_or(TodoError::TaskNotFound)?;
+        Ok(())
     }
 
     pub fn list_tasks(&self, category: Option<&str>) -> Vec<&Task> {
@@ -94,25 +113,20 @@ impl TodoList {
             .collect()
     }
 
-    pub fn update_task(
-        &mut self,
-        id: u32,
-        task_update: TaskUpdate
-    ) -> bool {
-        if let Some(task) = self.tasks.get_mut(&id) {
-            if let Some(desc) = task_update.description {
-                task.description = desc.to_string();
-            }
-            if let Some(date) = task_update.due_date {
-                task.due_date = DueDate::On(date)
-            }
-            if let Some(cat) = task_update.category {
-                task.category = cat;
-            }
-            true
-        } else {
-            false
+    pub fn update_task(&mut self, id: u32, task_update: TaskUpdate) -> Result<()> {
+        let task = self.tasks.get_mut(&id).ok_or(TodoError::TaskNotFound)?;
+
+        if let Some(desc) = task_update.description {
+            task.description = desc.to_string();
         }
+        if let Some(date) = task_update.due_date {
+            task.due_date = DueDate::On(date)
+        }
+        if let Some(cat) = task_update.category {
+            task.category = cat;
+        }
+
+        Ok(())
     }
 
     pub fn get_categories(&self) -> Vec<String> {
@@ -122,6 +136,18 @@ impl TodoList {
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    pub fn save_to_file(&self, filename: &str) -> Result<()> {
+        let json = serde_json::to_string(self)?;
+        fs::write(filename, json)?;
+        Ok(())
+    }
+
+    pub fn load_from_file(filename: &str) -> Result<Self> {
+        let json = fs::read_to_string(filename)?;
+        let todo_list: TodoList = serde_json::from_str(&json)?;
+        Ok(todo_list)
     }
 }
 
@@ -144,7 +170,7 @@ mod tests {
     #[test]
     fn test_get_task() {
         let mut list = TodoList::new();
-        let id = list.add_task( NewTask {
+        let id = list.add_task(NewTask {
             description: "Test task".to_string(),
             due_date: DueDate::None,
             category: "Test".to_string(),
@@ -154,7 +180,7 @@ mod tests {
         assert_eq!(task.id, id);
         assert_eq!(task.description, "Test task");
         match task.due_date {
-            DueDate::None => {},
+            DueDate::None => {}
             _ => panic!("Expected DueDate::None"),
         }
         assert_eq!(task.category, "Test");
@@ -170,9 +196,9 @@ mod tests {
             priority: Priority::Low,
         });
 
-        assert!(list.remove_task(id));
+        assert!(list.remove_task(id).is_ok());
         assert!(list.get_task(id).is_none());
-        assert!(!list.remove_task(id));
+        assert!(!list.remove_task(id).is_ok());
     }
 
     #[test]
@@ -184,7 +210,7 @@ mod tests {
             category: "Test".to_string(),
             priority: Priority::Low,
         });
-        
+
         let new_description = Some("Updated task".to_string());
         let new_due_date = Some(NaiveDate::from_ymd(2023, 12, 31));
         let new_category = Some("Updated".to_string());
@@ -195,8 +221,8 @@ mod tests {
             category: new_category,
         };
 
-        assert!(list.update_task(id, new_task_update));
-        
+        assert!(list.update_task(id, new_task_update).is_ok());
+
         let task = list.get_task(id).unwrap();
         assert_eq!(task.description, "Updated task");
         match task.due_date {
@@ -233,5 +259,4 @@ mod tests {
         assert!(categories.contains(&"Work".to_string()));
         assert!(categories.contains(&"Personal".to_string()));
     }
-
 }

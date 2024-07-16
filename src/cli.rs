@@ -48,7 +48,7 @@ fn add_task(todo_list: &mut TodoList) {
 
     io::stdin().read_line(&mut date_string).unwrap();
     let date_string = date_string.trim();
-    
+
     let due_date = if date_string.is_empty() {
         DueDate::None
     } else {
@@ -86,7 +86,7 @@ fn remove_task(todo_list: &mut TodoList) {
     let mut id = String::new();
     io::stdin().read_line(&mut id).unwrap();
     let id: u32 = id.trim().parse().unwrap();
-    if todo_list.remove_task(id) {
+    if todo_list.remove_task(id).is_ok() {
         println!("Task removed.");
     } else {
         println!("Task not found.");
@@ -169,8 +169,7 @@ fn update_task(todo_list: &mut TodoList) {
         category,
     };
 
-
-    if todo_list.update_task(id, task_update) {
+    if todo_list.update_task(id, task_update).is_ok() {
         println!("Task id {} updated.", id);
     }
 }

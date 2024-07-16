@@ -1,5 +1,8 @@
-use todo::{cli::DEFAULT_CATEGORY, todo::{DueDate, NewTask, Priority, TaskUpdate, TodoList}};
 use chrono::NaiveDate;
+use todo::{
+    cli::DEFAULT_CATEGORY,
+    todo::{DueDate, NewTask, Priority, TaskUpdate, TodoList},
+};
 
 #[test]
 fn test_add_task_with_category() {
@@ -22,7 +25,7 @@ fn test_add_task_with_category() {
 #[test]
 fn test_remove_task() {
     let mut todo_list = TodoList::new();
-    
+
     let task_update = NewTask {
         description: "Learn Rust".to_string(),
         due_date: DueDate::None,
@@ -31,21 +34,21 @@ fn test_remove_task() {
     };
 
     let id = todo_list.add_task(task_update);
-    assert!(todo_list.remove_task(id));
+    assert!(todo_list.remove_task(id).is_ok());
     assert_eq!(todo_list.list_tasks(None).len(), 0);
-    assert!(!todo_list.remove_task(id));
+    assert!(!todo_list.remove_task(id).is_ok());
 }
 
 #[test]
 fn test_list_tasks() {
     let mut todo_list = TodoList::new();
-    todo_list.add_task( NewTask {
+    todo_list.add_task(NewTask {
         description: "Learn Rust".to_string(),
         category: "Programming".to_string(),
         due_date: DueDate::None,
         priority: Priority::Medium,
-    }) ;
-    todo_list.add_task( NewTask {
+    });
+    todo_list.add_task(NewTask {
         description: "Write tests".to_string(),
         category: DEFAULT_CATEGORY.to_string(),
         due_date: DueDate::None,
@@ -142,23 +145,23 @@ fn test_update_task_preserve_due_date() {
 #[test]
 fn test_list_tasks_by_category() {
     let mut todo_list = TodoList::new();
-    todo_list.add_task( NewTask {
-        description: "Learn Rust".to_string(), 
+    todo_list.add_task(NewTask {
+        description: "Learn Rust".to_string(),
         category: "Programming".to_string(),
         due_date: DueDate::None,
         priority: Priority::Low,
     });
-    todo_list.add_task( NewTask {
-        description: "Buy groceries".to_string(), 
-        category:  "Personal".to_string(),
+    todo_list.add_task(NewTask {
+        description: "Buy groceries".to_string(),
+        category: "Personal".to_string(),
         due_date: DueDate::None,
         priority: Priority::Medium,
     });
-    todo_list.add_task( NewTask {
-       description:  "Read book".to_string(), 
-       category: "Personal".to_string(),
-       due_date: DueDate::None,
-       priority: Priority::High,
+    todo_list.add_task(NewTask {
+        description: "Read book".to_string(),
+        category: "Personal".to_string(),
+        due_date: DueDate::None,
+        priority: Priority::High,
     });
 
     let programming_tasks = todo_list.list_tasks(Some("Programming"));

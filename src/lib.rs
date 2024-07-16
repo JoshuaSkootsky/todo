@@ -1,3 +1,3 @@
 // src/lib.rs
-pub mod todo;
 pub mod cli;
+pub mod todo;

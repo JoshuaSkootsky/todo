@@ -1,6 +1,6 @@
 // src/main.rs
-mod todo;
 mod cli;
+mod todo;
 
 use todo::TodoList;
 
