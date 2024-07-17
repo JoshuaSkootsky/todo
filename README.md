@@ -22,6 +22,7 @@ cargo test
 * `update`: Update an existing task
 * `quit`: Exit the application
 
+![image](https://github.com/user-attachments/assets/5b335112-9541-4a9c-bcef-7b2671aa4364)
 
 ## Installation
 
@@ -36,3 +37,4 @@ Ensure you have Rust installed on your system. If not, you can install it from [
 * Multiple TODO lists support
 * Task prioritization
 * Multiplayer
+* Turn CLI into a web api
